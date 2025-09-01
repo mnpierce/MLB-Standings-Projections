@@ -7,7 +7,7 @@ from tkinter import ttk, messagebox
 from PIL import Image, ImageTk
 import io
 import requests
-from sklearn.linear_model import BayesianRidge, LinearRegression, RidgeCV
+from sklearn.linear_model import LinearRegression, RidgeCV
 from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
 
 from final_model import DataFetcher, Main
@@ -108,9 +108,9 @@ class MLBPredictionGUI:
         model_label = ttk.Label(model_frame, text="Model:", style='Data.TLabel')
         model_label.pack(side=tk.LEFT, padx=5)
         
-        self.model_var = tk.StringVar(value="BayesianRidge")
+        self.model_var = tk.StringVar(value="RidgeCV")
         model_values = [
-            "BayesianRidge", "LinearRegression", "RidgeCV", 
+            "LinearRegression", "RidgeCV", 
             "RandomForestRegressor", "GradientBoostingRegressor"
         ]
         model_combo = ttk.Combobox(model_frame, textvariable=self.model_var, values=model_values, width=23)
@@ -225,7 +225,7 @@ class MLBPredictionGUI:
         self.param1_var.set("")
         self.param2_var.set("")
 
-        if selected_model in ["BayesianRidge", "LinearRegression", "RidgeCV"]:
+        if selected_model in ["LinearRegression", "RidgeCV"]:
             if hasattr(model, "intercept_") and hasattr(model, "coef_"):
                 intercept_val = model.intercept_
                 coef_val = model.coef_
@@ -244,9 +244,7 @@ class MLBPredictionGUI:
                 self.param1_var.set(f"n_estimators: {model.n_estimators}")
     
     def create_model_instance(self, model_name):
-        if model_name == "BayesianRidge":
-            return BayesianRidge()
-        elif model_name == "LinearRegression":
+        if model_name == "LinearRegression":
             return LinearRegression()
         elif model_name == "RidgeCV":
             return RidgeCV()
@@ -601,7 +599,6 @@ class MLBPredictionGUI:
     4. View results in the different tabs.
 
     Model information:
-    - BayesianRidge: A Bayesian approach to linear regression.
     - LinearRegression: Ordinary least squares linear regression.
     - RidgeCV: Ridge regression with built-in cross-validation.
     - RandomForestRegressor: An ensemble model using multiple decision trees.

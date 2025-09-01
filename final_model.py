@@ -1,6 +1,6 @@
 import pandas as pd
 import statsapi
-from sklearn.linear_model import BayesianRidge, LinearRegression, RidgeCV
+from sklearn.linear_model import LinearRegression, RidgeCV
 from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import mean_squared_error
@@ -11,7 +11,7 @@ class DataFetcher:
             ('runs', 'pitching'),
             ('era', 'pitching'),
             ('whip', 'pitching'),
-            ('wins', 'pitching'),
+            #('wins', 'pitching'),
             ('strikeoutWalkRatio', 'pitching'),
             ('ops', 'pitching'),
             ('ops', 'hitting'),
@@ -81,6 +81,17 @@ class DataFetcher:
 
     DEFAULT_STATS = [
         ('runs', 'pitching'), ('era', 'pitching'), ('whip', 'pitching'),
+        ('strikeoutWalkRatio', 'pitching'), ('ops', 'pitching'),
+        ('ops', 'hitting'), ('leftOnBase', 'hitting'), ('runs', 'hitting'),
+        ('hits', 'hitting'), ('avg', 'hitting')
+    ]
+
+    WINS_ONLY = [
+        ('wins', 'pitching')
+    ]
+
+    WINS_PLUS = [
+        ('wins', 'pitching'), ('runs', 'pitching'), ('era', 'pitching'), ('whip', 'pitching'),
         ('strikeoutWalkRatio', 'pitching'), ('ops', 'pitching'),
         ('ops', 'hitting'), ('leftOnBase', 'hitting'), ('runs', 'hitting'),
         ('hits', 'hitting'), ('avg', 'hitting')
@@ -223,7 +234,6 @@ class Main:
         self.data_fetcher = DataFetcher(selected_stats=selected_stats)
         self.data_processor = None
         self.model_trainer = ModelTrainer(model)
-        self.prediction_accuracy = None
         self.test = False # flag to enable/disable printing
 
         # Set pandas display options to prevent truncation
@@ -286,13 +296,14 @@ class Main:
         if not self.test: print(f"RMSE for {projection_year}:", rmse)
 
         # Display results
-        results_df, division_accuracies = self.display_standings(df_scaled_test, y_labels_test, y_pred, projection_year)
+        results_df, division_accuracies, league_wide_accuracy = self.display_standings(df_scaled_test, y_labels_test, y_pred, projection_year)
 
         return {
             "results_df": results_df,
             "division_accuracies": division_accuracies,
             "rmse": rmse,
-            "overall_accuracy": sum(division_accuracies.values()) / len(division_accuracies),
+            "divisional_accuracy": sum(division_accuracies.values()) / len(division_accuracies),
+            "league_wide_accuracy": league_wide_accuracy,
             "model": self.model_trainer.model
         }
 
@@ -323,6 +334,11 @@ class Main:
             predicted_accuracy = self.calculate_ranking_accuracy(group['Predicted Wins'], group['Actual Wins'], group['Division Rank'])
             division_accuracies[division] = predicted_accuracy
 
+        # NEW: Calculate league-wide ranking accuracy
+        predicted_league_ranks = results_df['Predicted Wins'].rank(method='min', ascending=False)
+        actual_league_ranks = results_df['Actual Wins'].rank(method='min', ascending=False)
+        league_wide_accuracy, _ = spearmanr(predicted_league_ranks, actual_league_ranks)
+
         # Sort and display results
         results_df = results_df.sort_values(by=['Division', 'Predicted Wins'], ascending=[True, False])
         if not self.test:
@@ -331,15 +347,15 @@ class Main:
                 print(f"\n{division}")
                 print(group.drop(columns=['Division', 'Division Rank']))
                 pred_acc = division_accuracies[division]
-                print(f"Predicted Wins Accuracy: {pred_acc*100:.2f}%")
+                print(f"Divisional Predicted Wins Accuracy: {pred_acc*100:.2f}%")
         
-        total_pred_acc = sum(acc for acc in division_accuracies.values()) / len(division_accuracies)
-        self.prediction_accuracy = total_pred_acc
+        total_div_acc = sum(acc for acc in division_accuracies.values()) / len(division_accuracies)
 
         if not self.test:
-            print(f"Total Predicted Wins Accuracy: {total_pred_acc*100:.2f}%")
+            print(f"\nTotal Divisional Prediction Accuracy: {total_div_acc*100:.2f}%")
+            print(f"Total League-Wide Prediction Accuracy: {league_wide_accuracy*100:.2f}%")
 
-        return results_df, division_accuracies
+        return results_df, division_accuracies, league_wide_accuracy
 
     def calculate_ranking_accuracy(self, predicted, actual, division_ranks):
         "Calculate ranking accuracy using Spearman correlation coefficient"
@@ -387,10 +403,10 @@ class Main:
 
 
 if __name__ == "__main__":
-    models = [GradientBoostingRegressor(n_estimators=100, random_state=42), LinearRegression(), RidgeCV(), BayesianRidge(), RandomForestRegressor(n_estimators=100, random_state=42), ]
+    models = [LinearRegression(), RidgeCV(), RandomForestRegressor(n_estimators=100, random_state=42), GradientBoostingRegressor(n_estimators=100, random_state=42)]
     # model = RandomForestRegressor(n_estimators=100, random_state=42)
     for model in models:
-        print(f"Running model: {model}")   
+        print(f"\nRunning model: {model}")   
         main = Main(model)
         # main.run() # Run for user-specified year
 
@@ -399,10 +415,18 @@ if __name__ == "__main__":
         # Divisional (averaged): 0.8182271522410419
 
         ##### For testing overall accuracies #####
-        pred_acc = []
+        divisional_acc = []
+        league_acc = []
+        rmse_scores = []
         for year in range(2008,2025):
             if year != 2020:
                 print(f"Running for projection year: {year}")
-                main.run(season=year, test=True)
-                pred_acc.append(main.prediction_accuracy)
-        print(f"Overall Prediction Accuracy: {sum(pred_acc)/len(pred_acc)}")
+                results = main.run(season=year, test=True)
+                divisional_acc.append(results["divisional_accuracy"])
+                league_acc.append(results["league_wide_accuracy"])
+                rmse_scores.append(results["rmse"])
+        
+        print(f"\n--- Final Results for model: {model} ---")
+        print(f"Overall Average RMSE: {sum(rmse_scores)/len(rmse_scores):.4f} wins")
+        print(f"Overall Divisional Prediction Accuracy: {sum(divisional_acc)/len(divisional_acc):.4f}")
+        print(f"Overall League-Wide Prediction Accuracy: {sum(league_acc)/len(league_acc):.4f}")
