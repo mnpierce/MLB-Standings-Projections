@@ -41,7 +41,8 @@ class MLBPredictionGUI:
         
         # Initialize data and model classes
         self.division_results = {}
-        self.overall_accuracy = 0.0
+        self.divisional_accuracy = 0.0
+        self.league_wide_accuracy = 0.0
         self.rmse = 0.0
         
         # Setup main containers
@@ -69,12 +70,8 @@ class MLBPredictionGUI:
             logo_url = "https://www.mlbstatic.com/team-logos/league-on-dark/1.svg"
             response = requests.get(logo_url)
             if response.status_code == 200:
-                img_data = response.content
-                img = Image.open(io.BytesIO(img_data))
-                img = img.resize((80, 40), Image.LANCZOS)
-                self.logo_img = ImageTk.PhotoImage(img)
-                logo_label = ttk.Label(header_frame, image=self.logo_img, background=self.header_color)
-                logo_label.pack(side=tk.RIGHT, padx=10, pady=5)
+                # Placeholder for SVG rendering if library is available
+                pass
         except:
             # If logo fetch fails, display a text alternative
             logo_alt = ttk.Label(header_frame, text="MLB", style='Header.TLabel')
@@ -132,9 +129,13 @@ class MLBPredictionGUI:
         rmse_label = ttk.Label(info_frame, textvariable=self.rmse_var, style='Data.TLabel')
         rmse_label.pack(anchor=tk.W, pady=2)
         
-        self.accuracy_var = tk.StringVar(value="Overall Accuracy: -")
-        accuracy_label = ttk.Label(info_frame, textvariable=self.accuracy_var, style='Data.TLabel')
-        accuracy_label.pack(anchor=tk.W, pady=2)
+        self.divisional_accuracy_var = tk.StringVar(value="Divisional Accuracy: -")
+        divisional_accuracy_label = ttk.Label(info_frame, textvariable=self.divisional_accuracy_var, style='Data.TLabel')
+        divisional_accuracy_label.pack(anchor=tk.W, pady=2)
+
+        self.league_accuracy_var = tk.StringVar(value="League-Wide Accuracy: -")
+        league_accuracy_label = ttk.Label(info_frame, textvariable=self.league_accuracy_var, style='Data.TLabel')
+        league_accuracy_label.pack(anchor=tk.W, pady=2)
         
         # Help
         help_button = ttk.Button(control_frame, text="Help/About", command=self.show_help)
@@ -195,8 +196,9 @@ class MLBPredictionGUI:
             
             # Update status
             self.status_var.set(f"Projection completed for {projection_year} using {selected_model}")
-            self.rmse_var.set(f"RMSE: {self.rmse:.2f}")
-            self.accuracy_var.set(f"Overall Accuracy: {self.overall_accuracy*100:.2f}%")
+            self.rmse_var.set(f"RMSE: {self.rmse:.2f} wins")
+            self.divisional_accuracy_var.set(f"Divisional Accuracy: {self.divisional_accuracy*100:.2f}%")
+            self.league_accuracy_var.set(f"League-Wide Accuracy: {self.league_wide_accuracy*100:.2f}%")
             
             # Display results
             self.display_division_tables()
@@ -211,11 +213,12 @@ class MLBPredictionGUI:
         model_instance = self.create_model_instance(selected_model)
 
         main = Main(model=model_instance, selected_stats=self.selected_stats)
-        results = main.run(projection_year)
+        results = main.run(season=projection_year, test=True) # run in test mode
 
         self.rmse = results["rmse"]
         self.division_accuracies = results["division_accuracies"]
-        self.overall_accuracy = results["overall_accuracy"]
+        self.divisional_accuracy = results["divisional_accuracy"]
+        self.league_wide_accuracy = results["league_wide_accuracy"]
         self.results_df = results["results_df"]
 
         # update coefficients on gui
@@ -234,15 +237,22 @@ class MLBPredictionGUI:
         elif selected_model in ["RandomForestRegressor", "GradientBoostingRegressor"]:
             if hasattr(model, "feature_importances_"):
                 importances = model.feature_importances_
-                feature_names = [f"{'p' if g == 'pitching' else 'h'}_{s}" for s, g in self.selected_stats]
-                
+                # Reconstruct feature names based on selected_stats
+                feature_names = []
+                for stat, group in self.selected_stats:
+                    prefix = 'p_' if group == 'pitching' else 'h_'
+                    feature_names.append(prefix + stat)
+
                 importances_dict = dict(zip(feature_names, importances))
                 sorted_importances = sorted(importances_dict.items(), key=lambda item: item[1], reverse=True)
                 
-                importance_str = ", ".join([f"{name}: {val:.3f}" for name, val in sorted_importances])
+                # Create a string for top 4 features
+                top_features = sorted_importances[:4]
+                importance_str = ", ".join([f"{name.split('_', 1)[1]} ({val:.3f})" for name, val in top_features])
 
                 self.param1_var.set(f"n_estimators: {model.n_estimators}")
-    
+                self.param2_var.set(f"Top Features: {importance_str}")
+
     def create_model_instance(self, model_name):
         if model_name == "LinearRegression":
             return LinearRegression()
@@ -516,9 +526,14 @@ class MLBPredictionGUI:
         cbar.set_label('Actual - Predicted Wins\n(Red = Overperformed, Blue = Underperformed)')
         
         # Add overall title
-        fig.suptitle(f'MLB Win Predictions - Year {self.year_var.get()}\nOverall Accuracy: {self.overall_accuracy*100:.2f}%, RMSE: {self.rmse:.2f}', 
-                    fontsize=16)
-        
+        title = (
+            f'MLB Win Predictions - Year {self.year_var.get()}\n'
+            f'Divisional Acc: {self.divisional_accuracy*100:.2f}%, '
+            f'League-Wide Acc: {self.league_wide_accuracy*100:.2f}%, '
+            f'RMSE: {self.rmse:.2f}'
+        )
+        fig.suptitle(title, fontsize=16)
+
         fig.tight_layout(rect=[0, 0, 0.9, 0.95])
         
         # Add the figure to the frame
