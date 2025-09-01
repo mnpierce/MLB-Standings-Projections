@@ -1,3 +1,2 @@
 .venv
-mlb_stats_test.csv
-mlb_stats_training.csv
+*.csv
