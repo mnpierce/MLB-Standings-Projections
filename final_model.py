@@ -1,7 +1,7 @@
 import pandas as pd
 import statsapi
 from sklearn.linear_model import BayesianRidge, LinearRegression, RidgeCV
-from sklearn.ensemble import RandomForestRegressor
+from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import mean_squared_error
 from scipy.stats import spearmanr
@@ -88,7 +88,7 @@ class DataFetcher:
 
     def __init__(self, selected_stats=None):
         self.team_ids = self.get_team_ids()
-        self.stats_to_use = selected_stats if selected_stats is not None else self.DEFAULT_STATS
+        self.stats_to_use = selected_stats if selected_stats is not None else self.ALL_STATS
 
     def get_team_ids(self):
         "Use teams endpoint to get team IDs for easy lookup (2021 chosen at random)"
@@ -113,46 +113,71 @@ class DataFetcher:
     def compile_team_data(self, team_list, my_dict, season):
         "Compiles all stats, including hitting and pitching as well as a wins target label into a nested dictionary"
 
-        # Get games played for each team in order to make total stats into ratio stats
-        gp_dict = dict()
+        # Fetch all hitting and pitching stats for the season in just two API calls.
         
-        gp = statsapi.get("teams_stats", {'stats': 'byDateRange',
-                                             'season': season,
-                                             'group': "hitting",
-                                             'gameType': 'R',
-                                             'startDate': f"03/01/{season}",
-                                             'endDate': f"07/07/{season}",
-                                             'sportIds': 1}, )
-        gp = gp['stats'][0]['splits']
-        for team in gp:
-            gp_dict[team['team']['id']] = team['stat']['gamesPlayed']
+        # Call 1: Get all hitting stats for all teams
+        all_hitting_stats_raw = statsapi.get("teams_stats", {
+            'stats': 'byDateRange',
+            'season': season,
+            'group': "hitting",
+            'gameType': 'R',
+            'startDate': f"03/01/{season}",
+            'endDate': f"07/07/{season}",
+            'sportIds': 1
+        })
+        
+        # Call 2: Get all pitching stats for all teams
+        all_pitching_stats_raw = statsapi.get("teams_stats", {
+            'stats': 'byDateRange',
+            'season': season,
+            'group': "pitching",
+            'gameType': 'R',
+            'startDate': f"03/01/{season}",
+            'endDate': f"07/07/{season}",
+            'sportIds': 1
+        })
+
+        # Process the raw data into dictionaries keyed by team ID for easy access.
+        hitting_stats = {team['team']['id']: team['stat'] for team in all_hitting_stats_raw['stats'][0].get('splits', [])}
+        pitching_stats = {team['team']['id']: team['stat'] for team in all_pitching_stats_raw['stats'][0].get('splits', [])}
+        
+        # Games played is available in the hitting stats, so no extra call is needed.
+        gp_dict = {team_id: stats.get('gamesPlayed', 1) for team_id, stats in hitting_stats.items()}
 
         for my_stat in self.stats_to_use:
-            dic = self.get_stat(stat=my_stat[0], group=my_stat[1], season=season)
+            stat_name, group = my_stat
+            
             for team_id in team_list:
-                # Exclude stats that are already ratio stats or should not be ratio stats
-                if my_stat[0] in ['wins', 'avg', 'obp', 'slg', 'ops', 'era', 'whip', 'strikeoutWalkRatio', 'stolenBasePercentage', 'groundOutsToAirouts', 'pitchesPerInning', 'strikeoutsPer9Inn', 'walksPer9Inn', 'hitsPer9Inn', 'runsScoredPer9', 'homeRunsPer9', 'strikePercentage', ]:
-                    if my_stat[1] == 'pitching':
-                        # Use p_ and h_ to distinguish betweeen stats that have same naming for hitting and pitching
-                        my_dict[season * 1000 + team_id]['p_' + my_stat[0]] = dic[team_id]
-                    else: 
-                        my_dict[season * 1000 + team_id]['h_' + my_stat[0]] = dic[team_id]
+                # Select the correct pre-fetched data based on the group
+                source_data = pitching_stats if group == 'pitching' else hitting_stats
+                
+                # Check if the team has data for that season
+                if team_id not in source_data:
+                    continue
+                
+                stat_value = source_data[team_id].get(stat_name)
+                
+                # Exclude stats that are already ratios or should not be ratios
+                if stat_name in ['wins', 'avg', 'obp', 'slg', 'ops', 'era', 'whip', 'strikeoutWalkRatio', 'stolenBasePercentage', 'groundOutsToAirouts', 'pitchesPerInning', 'strikeoutsPer9Inn', 'walksPer9Inn', 'hitsPer9Inn', 'runsScoredPer9', 'homeRunsPer9', 'strikePercentage']:
+                    prefix = 'p_' if group == 'pitching' else 'h_'
+                    my_dict[season * 1000 + team_id][prefix + stat_name] = stat_value
                 # Handle stats that should become ratio stats
                 else:
-                    if my_stat[1] == 'pitching':
-                        my_dict[season * 1000 + team_id]['p_' + my_stat[0]] = dic[team_id]/gp_dict[team_id]
-                    else: 
-                        my_dict[season * 1000 + team_id]['h_' + my_stat[0]] = dic[team_id]/gp_dict[team_id]
-                        # full season wins
-        stats = statsapi.get("standings", {'season': season,
-                                           'sportIds': 1,        # MLB
-                                           'leagueId': "103,104" # AL and NL
-                                           })
+                    prefix = 'p_' if group == 'pitching' else 'h_'
+                    games_played = gp_dict.get(team_id, 1) # Default to 1 to avoid division by zero
+                    my_dict[season * 1000 + team_id][prefix + stat_name] = stat_value / games_played if games_played > 0 else 0
+
+        # Call 3: Get full season wins (standings) - this call is still necessary
+        stats = statsapi.get("standings", {
+            'season': season,
+            'sportIds': 1,
+            'leagueId': "103,104"
+        })
         
-        # Modify team id labeling to allow for date concatenation
         for division in stats['records']:
             for team in division['teamRecords']:
                 my_dict[season * 1000 + team['team']['id']]['wins'] = team['wins']
+                
         return my_dict
 
     def export_to_csv(self, data, filename):
@@ -362,20 +387,22 @@ class Main:
 
 
 if __name__ == "__main__":
-    model = LinearRegression()
+    models = [GradientBoostingRegressor(n_estimators=100, random_state=42), LinearRegression(), RidgeCV(), BayesianRidge(), RandomForestRegressor(n_estimators=100, random_state=42), ]
     # model = RandomForestRegressor(n_estimators=100, random_state=42)
-    main = Main(model)
-    # main.run() # Run for user-specified year
+    for model in models:
+        print(f"Running model: {model}")   
+        main = Main(model)
+        # main.run() # Run for user-specified year
 
-    # Accuracies using only midseason wins as predictor of final ranks (Linear Regression)
-    # League wide: 0.8584506628856584
-    # Divisional (averaged): 0.8182271522410419
+        # Accuracies using only midseason wins as predictor of final ranks (Linear Regression)
+        # League wide: 0.8584506628856584
+        # Divisional (averaged): 0.8182271522410419
 
-    ##### For testing overall accuracies #####
-    pred_acc = []
-    for year in range(2008,2025):
-        if year != 2020:
-            print(f"Running for projection year: {year}")
-            main.run(season=year, test=True)
-            pred_acc.append(main.prediction_accuracy)
-    print(f"Overall Prediction Accuracy: {sum(pred_acc)/len(pred_acc)}")
+        ##### For testing overall accuracies #####
+        pred_acc = []
+        for year in range(2008,2025):
+            if year != 2020:
+                print(f"Running for projection year: {year}")
+                main.run(season=year, test=True)
+                pred_acc.append(main.prediction_accuracy)
+        print(f"Overall Prediction Accuracy: {sum(pred_acc)/len(pred_acc)}")

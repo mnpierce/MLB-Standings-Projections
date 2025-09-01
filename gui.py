@@ -9,7 +9,6 @@ import io
 import requests
 from sklearn.linear_model import BayesianRidge, LinearRegression, RidgeCV
 from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
-from sklearn.svm import SVR
 
 from final_model import DataFetcher, Main
 
@@ -112,7 +111,7 @@ class MLBPredictionGUI:
         self.model_var = tk.StringVar(value="BayesianRidge")
         model_values = [
             "BayesianRidge", "LinearRegression", "RidgeCV", 
-            "RandomForestRegressor", "GradientBoostingRegressor", "SVR"
+            "RandomForestRegressor", "GradientBoostingRegressor"
         ]
         model_combo = ttk.Combobox(model_frame, textvariable=self.model_var, values=model_values, width=23)
         model_combo.pack(side=tk.LEFT, padx=5)
@@ -243,10 +242,6 @@ class MLBPredictionGUI:
                 importance_str = ", ".join([f"{name}: {val:.3f}" for name, val in sorted_importances])
 
                 self.param1_var.set(f"n_estimators: {model.n_estimators}")
-                self.param2_var.set(f"Feature Importances: {importance_str}")
-        elif selected_model == "SVR":
-            self.param1_var.set(f"Kernel: {model.kernel}")
-            self.param2_var.set(f"C (Regularization): {model.C}")
     
     def create_model_instance(self, model_name):
         if model_name == "BayesianRidge":
@@ -259,8 +254,6 @@ class MLBPredictionGUI:
             return RandomForestRegressor(n_estimators=100, random_state=42)
         elif model_name == "GradientBoostingRegressor":
             return GradientBoostingRegressor(n_estimators=100, random_state=42)
-        elif model_name == "SVR":
-            return SVR() # Uses default rbf kernel
         else:
             raise ValueError(f"Unknown model: {model_name}")
 
@@ -613,7 +606,6 @@ class MLBPredictionGUI:
     - RidgeCV: Ridge regression with built-in cross-validation.
     - RandomForestRegressor: An ensemble model using multiple decision trees.
     - GradientBoostingRegressor: An ensemble model building trees sequentially to correct prior errors.
-    - SVR (Support Vector Regression): A model that finds an optimal boundary line to fit the data.
 
     The accuracy is measured using Spearman rank correlation within divisions.
     RMSE (Root Mean Square Error) shows the overall prediction error in terms of wins.
