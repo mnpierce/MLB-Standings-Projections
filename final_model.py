@@ -1,6 +1,7 @@
 import pandas as pd
 import statsapi
 from sklearn.linear_model import BayesianRidge, LinearRegression, RidgeCV
+from sklearn.ensemble import RandomForestRegressor
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import mean_squared_error
 from scipy.stats import spearmanr
@@ -362,18 +363,19 @@ class Main:
 
 if __name__ == "__main__":
     model = LinearRegression()
+    # model = RandomForestRegressor(n_estimators=100, random_state=42)
     main = Main(model)
-    main.run() # Run for user-specified year
+    # main.run() # Run for user-specified year
 
     # Accuracies using only midseason wins as predictor of final ranks (Linear Regression)
     # League wide: 0.8584506628856584
     # Divisional (averaged): 0.8182271522410419
 
     ##### For testing overall accuracies #####
-    # pred_acc = []
-    # for year in range(2008,2025):
-    #     if year != 2020:
-    #         print(f"Running for projection year: {year}")
-    #         main.run(season=year, test=True)
-    #         pred_acc.append(main.prediction_accuracy)
-    # print(f"Overall Prediction Accuracy: {sum(pred_acc)/len(pred_acc)}")
+    pred_acc = []
+    for year in range(2008,2025):
+        if year != 2020:
+            print(f"Running for projection year: {year}")
+            main.run(season=year, test=True)
+            pred_acc.append(main.prediction_accuracy)
+    print(f"Overall Prediction Accuracy: {sum(pred_acc)/len(pred_acc)}")
